@@ -3,6 +3,8 @@ import { BrowserRouter as Router, Routes, Route, Navigate } from 'react-router-d
 import StudentFeedback from './pages/StudentFeedback';
 import Login from './pages/Login';
 import WardenDashboard from './pages/WardenDashboard';
+import NursePortal from './pages/NursePortal';
+import HospitalAdmin from './pages/HospitalAdmin';
 
 function App() {
   const [user, setUser] = useState(null);
@@ -53,9 +55,13 @@ function App() {
             )
           } 
         />
-
+        
         {/* Catch-all: Redirect to Home */}
         <Route path="*" element={<Navigate to="/" />} />
+
+        {/* hospital routses */}
+          <Route path="/hospital" element={<NursePortal />} />
+          <Route path="/hospital-admin" element={<HospitalAdmin />} />
       </Routes>
     </Router>
   );
