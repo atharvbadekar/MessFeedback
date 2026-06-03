@@ -48,7 +48,8 @@ feedback: {
 // NEW FIELD FOR HOSPITAL DATA
 medicalHistory: [medicalVisitSchema]
 });
-const Student = mongoose.model('Student', StudentSchema);
+
+const Student = mongoose.models.Student || mongoose.model('Student', StudentSchema);
 
 const WardenSchema = new mongoose.Schema({
     username: { type: String, unique: true, required: true },
@@ -93,35 +94,56 @@ const protect = (req, res, next) => {
 };
 
 // --- STAFF ROUTES ---
-// Endpoint for Nurse to submit prescription and symptoms
 app.post('/api/hospital/submit-visit', async (req, res) => {
-    const { collegeId, symptoms, prescribedMedicines } = req.body;
+    const { collegeId, symptoms, prescribedMedicines, remarks } = req.body;
     
+    console.log("📥 Incoming Hospital Log Request:", { collegeId, symptoms, prescribedMedicines, remarks });
+
     if (!collegeId || !symptoms || !prescribedMedicines) {
-        return res.status(400).json({ error: "All fields are required" });
+        return res.status(400).json({ error: "Required fields (ID, Symptoms, Medicines) are missing." });
     }
 
     try {
-        const student = await Student.findOneAndUpdate(
-            { collegeId: { $regex: new RegExp("^" + collegeId.trim() + "$", "i") } },
-            { 
-                $push: { 
-                    medicalHistory: { 
-                        symptoms, 
-                        prescribedMedicines, 
-                        remarks, // <-- ADD THIS LINE to save it
-                        visitedAt: new Date() 
-                    } 
-                } 
-            },
-            { new: true }
-        );
+        // 1. Fetch full student document using a case-insensitive regex check
+        const student = await Student.findOne({ 
+            collegeId: { $regex: new RegExp("^" + collegeId.trim() + "$", "i") } 
+        });
 
-        if (!student) return res.status(404).json({ error: "Student not found" });
+        if (!student) {
+            console.log(`❌ No student matching code: ${collegeId}`);
+            return res.status(404).json({ error: "Student not found in database records." });
+        }
+
+        // 2. Initialize array if it somehow doesn't exist yet on an old document instance
+        if (!student.medicalHistory) {
+            student.medicalHistory = [];
+        }
+
+        // 3. Append the treatment parameters manually
+        student.medicalHistory.push({
+            symptoms: symptoms.trim(),
+            prescribedMedicines: prescribedMedicines.trim(),
+            remarks: remarks ? remarks.trim() : "",
+            visitedAt: new Date()
+        });
+
+        // 4. ESSENTIAL STEP: Explicitly alert Mongoose that an array subdocument was altered
+        student.markModified('medicalHistory');
+
+        // 5. Commit the fully modified object tree to MongoDB Atlas
+        const savedDoc = await student.save();
         
-        res.json({ success: true, message: "Medical log updated successfully!" });
+        console.log(`✅ Medical ledger updated safely for: ${savedDoc.name}`);
+        
+        res.json({ 
+            success: true, 
+            message: "Medical log successfully committed to master database.",
+            data: savedDoc.medicalHistory 
+        });
+
     } catch (err) {
-        res.status(500).json({ error: "Database error" });
+        console.error("❌ Critical Save Routine Failure:", err);
+        res.status(500).json({ error: "Database execution engine dropped save parameters." });
     }
 });
 
