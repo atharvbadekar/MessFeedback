@@ -231,122 +231,122 @@ app.get('/api/student/:collegeId', async (req, res) => {
     }
 });
 
-// app.post('/api/student/send-otp', async (req, res) => {
-//     try {
-//         const { collegeId } = req.body;
-//         const student = await Student.findOne({ 
-//             collegeId: { $regex: new RegExp("^" + collegeId.trim() + "$", "i") } 
-//         });
-
-//         if (!student || !student.mobile) {
-//             return res.status(404).json({ error: "Student or mobile number not found" });
-//         }
-
-//         const cleanMobile = student.mobile.toString().replace(/\D/g, '').slice(-10);
-//         const otp = Math.floor(100000 + Math.random() * 900000).toString();
-//         student.otp = otp;
-//         await student.save();
-
-//         const params = new URLSearchParams({
-//             authorization: process.env.FAST2SMS_API_KEY,
-//             route: 'q',
-//             message: `Your CURAJ OTP is ${otp}`,
-//             language: 'english',
-//             flash: '0',
-//             numbers: cleanMobile
-//         });
-
-//         const response = await axios.get(`https://www.fast2sms.com/dev/bulkV2?${params.toString()}`);
-
-//         if (response.data.return) {
-//             console.log(`✅ Success! OTP ${otp} sent to ${cleanMobile}`);
-//             res.json({ message: "OTP sent successfully!" });
-//         } else {
-//             res.status(400).json({ error: response.data.message });
-//         }
-//     } catch (err) {
-//         res.status(500).json({ error: "SMS Gateway Failed" });
-//     }
-// });
-
-// app.post('/api/student/verify-otp', async (req, res) => {
-//     const { collegeId, otp } = req.body;
-//     const student = await Student.findOne({ 
-//         collegeId: { $regex: new RegExp("^" + collegeId.trim() + "$", "i") }, 
-//         otp 
-//     });
-
-//     if (student) {
-//         student.otp = null; 
-//         await student.save();
-//         res.json({ success: true });
-//     } else {
-//         res.status(401).json({ success: false, message: "Invalid OTP" });
-//     }
-// });
-
-
-
-
-// 2. REPLACEMENT FOR: Send OTP Route
 app.post('/api/student/send-otp', async (req, res) => {
-    const { collegeId } = req.body;
-
-    if (!collegeId) {
-        return res.status(400).json({ error: "College ID is required" });
-    }
-
     try {
-        // Generate a random 6-digit code
-        const generatedOtp = Math.floor(100000 + Math.random() * 900000).toString();
-
-        // Save it temporarily in our local map using the student's ID as the key
-        localOtpStore.set(collegeId.toUpperCase(), generatedOtp);
-
-        // --- THE LOCAL TERMINAL PRINT TRICK ---
-        console.log("\n==============================================");
-        console.log(`📡 [LOCAL TESTING MODE] OTP requested for: ${collegeId.toUpperCase()}`);
-        console.log(`🔑 USE THIS CODE TO LOG IN: ${generatedOtp}`);
-        console.log("==============================================\n");
-
-        /* 
-        COMMENT OUT YOUR ACTUAL SMS CODE HERE SO IT DOES NOT RUN:
-        await axios.post('YOUR_SMS_GATEWAY_URL', { ... });
-        */
-
-        // Return a quick success response to move your frontend to Step 2
-        res.json({ 
-            success: true, 
-            message: "Local testing OTP generated successfully." 
+        const { collegeId } = req.body;
+        const student = await Student.findOne({ 
+            collegeId: { $regex: new RegExp("^" + collegeId.trim() + "$", "i") } 
         });
 
+        if (!student || !student.mobile) {
+            return res.status(404).json({ error: "Student or mobile number not found" });
+        }
+
+        const cleanMobile = student.mobile.toString().replace(/\D/g, '').slice(-10);
+        const otp = Math.floor(100000 + Math.random() * 900000).toString();
+        student.otp = otp;
+        await student.save();
+
+        const params = new URLSearchParams({
+            authorization: process.env.FAST2SMS_API_KEY,
+            route: 'q',
+            message: `Your CURAJ OTP is ${otp}`,
+            language: 'english',
+            flash: '0',
+            numbers: cleanMobile
+        });
+
+        const response = await axios.get(`https://www.fast2sms.com/dev/bulkV2?${params.toString()}`);
+
+        if (response.data.return) {
+            console.log(`✅ Success! OTP ${otp} sent to ${cleanMobile}`);
+            res.json({ message: "OTP sent successfully!" });
+        } else {
+            res.status(400).json({ error: response.data.message });
+        }
     } catch (err) {
-        console.error("OTP Error:", err);
-        res.status(500).json({ error: "Server failed to generate OTP" });
+        res.status(500).json({ error: "SMS Gateway Failed" });
     }
 });
 
-// 3. REPLACEMENT FOR: Verify OTP Route
 app.post('/api/student/verify-otp', async (req, res) => {
     const { collegeId, otp } = req.body;
+    const student = await Student.findOne({ 
+        collegeId: { $regex: new RegExp("^" + collegeId.trim() + "$", "i") }, 
+        otp 
+    });
 
-    if (!collegeId || !otp) {
-        return res.status(400).json({ error: "Missing identity credentials or OTP code" });
-    }
-
-    // Retrieve the active code we saved in our map
-    const correctOtp = localOtpStore.get(collegeId.toUpperCase());
-
-    // Check if what the user typed matches our terminal generated code
-    if (correctOtp && correctOtp === otp.trim()) {
-        // Clear the code so it cannot be used a second time
-        localOtpStore.delete(collegeId.toUpperCase()); 
-        
-        return res.json({ success: true, message: "Identity authorized successfully!" });
+    if (student) {
+        student.otp = null; 
+        await student.save();
+        res.json({ success: true });
     } else {
-        return res.status(400).json({ error: "Invalid OTP code. Please try again." });
+        res.status(401).json({ success: false, message: "Invalid OTP" });
     }
 });
+
+
+
+
+// // 2. REPLACEMENT FOR: Send OTP Route
+// app.post('/api/student/send-otp', async (req, res) => {
+//     const { collegeId } = req.body;
+
+//     if (!collegeId) {
+//         return res.status(400).json({ error: "College ID is required" });
+//     }
+
+//     try {
+//         // Generate a random 6-digit code
+//         const generatedOtp = Math.floor(100000 + Math.random() * 900000).toString();
+
+//         // Save it temporarily in our local map using the student's ID as the key
+//         localOtpStore.set(collegeId.toUpperCase(), generatedOtp);
+
+//         // --- THE LOCAL TERMINAL PRINT TRICK ---
+//         console.log("\n==============================================");
+//         console.log(`📡 [LOCAL TESTING MODE] OTP requested for: ${collegeId.toUpperCase()}`);
+//         console.log(`🔑 USE THIS CODE TO LOG IN: ${generatedOtp}`);
+//         console.log("==============================================\n");
+
+//         /* 
+//         COMMENT OUT YOUR ACTUAL SMS CODE HERE SO IT DOES NOT RUN:
+//         await axios.post('YOUR_SMS_GATEWAY_URL', { ... });
+//         */
+
+//         // Return a quick success response to move your frontend to Step 2
+//         res.json({ 
+//             success: true, 
+//             message: "Local testing OTP generated successfully." 
+//         });
+
+//     } catch (err) {
+//         console.error("OTP Error:", err);
+//         res.status(500).json({ error: "Server failed to generate OTP" });
+//     }
+// });
+
+// // 3. REPLACEMENT FOR: Verify OTP Route
+// app.post('/api/student/verify-otp', async (req, res) => {
+//     const { collegeId, otp } = req.body;
+
+//     if (!collegeId || !otp) {
+//         return res.status(400).json({ error: "Missing identity credentials or OTP code" });
+//     }
+
+//     // Retrieve the active code we saved in our map
+//     const correctOtp = localOtpStore.get(collegeId.toUpperCase());
+
+//     // Check if what the user typed matches our terminal generated code
+//     if (correctOtp && correctOtp === otp.trim()) {
+//         // Clear the code so it cannot be used a second time
+//         localOtpStore.delete(collegeId.toUpperCase()); 
+        
+//         return res.json({ success: true, message: "Identity authorized successfully!" });
+//     } else {
+//         return res.status(400).json({ error: "Invalid OTP code. Please try again." });
+//     }
+// });
 
 
 

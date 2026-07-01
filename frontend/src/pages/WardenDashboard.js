@@ -6,7 +6,7 @@ import {
 } from 'lucide-react';
 import axios from 'axios';
 import jsPDF from 'jspdf';
-import 'jspdf-autotable';
+import autoTable from 'jspdf-autotable';
 
 import {
   Chart as ChartJS,
@@ -124,7 +124,7 @@ const WardenDashboard = ({ hostelId, onLogout }) => {
         const doc = new jsPDF();
         const tableColumn = ["Student Name", "ID", "Hostel", "Avg Rating", "Date"];
         const tableRows = [];
-
+    
         filteredStudents.filter(s => s.feedback?.isSubmitted).forEach(s => {
             const avg = (s.feedback.answers.reduce((a, b) => a + b, 0) / s.feedback.answers.length).toFixed(1);
             const rowData = [
@@ -136,10 +136,19 @@ const WardenDashboard = ({ hostelId, onLogout }) => {
             ];
             tableRows.push(rowData);
         });
-
+    
         doc.setFontSize(18);
         doc.text("CURAJ Mega Mess Feedback Report", 14, 15);
-        doc.autoTable(tableColumn, tableRows, { startY: 25 });
+        
+        // --- THE FIX: Call autoTable directly and pass 'doc' ---
+        autoTable(doc, {
+            head: [tableColumn],
+            body: tableRows,
+            startY: 25,
+            theme: 'grid',
+            headStyles: { fillColor: [30, 41, 59] } // Dark slate background to match your theme
+        });
+    
         doc.save(`Mess_Report_${new Date().toLocaleDateString()}.pdf`);
     };
 
