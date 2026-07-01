@@ -16,7 +16,7 @@ const NursePortal = () => {
 
   const API_URL = window.location.hostname === 'localhost' 
     ? 'http://localhost:5000' 
-    : 'https://hostelfeedback.onrender.com';
+    : 'https://messfeedback.onrender.com';
 
   const handleFetchStudentAndSendOTP = async () => {
     if (!collegeId) return alert("Please enter Student College ID");
