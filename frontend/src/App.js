@@ -1,69 +1,58 @@
 import React, { useState, useEffect } from 'react';
-import { BrowserRouter as Router, Routes, Route, Navigate } from 'react-router-dom';
+import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom';
 import StudentFeedback from './pages/StudentFeedback';
 import Login from './pages/Login';
-import WardenDashboard from './pages/WardenDashboard';
-import NursePortal from './pages/NursePortal';
-import HospitalAdmin from './pages/HospitalAdmin';
+import ChiefWarden from './pages/ChiefWarden';
 
 function App() {
   const [user, setUser] = useState(null);
-  const [loading, setLoading] = useState(true);
 
-  // Check if user is already logged in on page load
+  // Re-hydrate session state from localStorage on page reload
   useEffect(() => {
-    const token = localStorage.getItem('token');
-    const role = localStorage.getItem('role');
+    const token = localStorage.getItem('token') || localStorage.getItem('adminToken');
+    const role = localStorage.getItem('role') || localStorage.getItem('userRole');
     const hostelId = localStorage.getItem('hostelId');
 
-    if (token && role) {
+    if (token) {
       setUser({ token, role, hostelId });
     }
-    setLoading(false);
   }, []);
 
   const handleLogout = () => {
-    localStorage.clear();
+    localStorage.removeItem('token');
+    localStorage.removeItem('adminToken');
+    localStorage.removeItem('role');
+    localStorage.removeItem('userRole');
+    localStorage.removeItem('hostelId');
     setUser(null);
+    window.location.href = '/login';
   };
 
-  if (loading) return <div className="flex h-screen items-center justify-center font-bold">Initializing CURAJ Portal...</div>;
-
   return (
-    <Router>
+    <BrowserRouter>
       <Routes>
-        {/* Public Route: Student Feedback */}
+        {/* Student Portal (Default) */}
         <Route path="/" element={<StudentFeedback />} />
 
-        {/* Login Route */}
-        <Route 
-          path="/login" 
-          element={user ? <Navigate to="/dashboard" /> : <Login setUser={setUser} />} 
-        />
+        {/* Staff Authentication Portal */}
+        <Route path="/login" element={<Login setUser={setUser} />} />
 
-        {/* Protected Dashboard Route */}
+        {/* Protected Dashboard Route for Chief Warden & Hostel Wardens */}
         <Route 
           path="/dashboard" 
           element={
-            user ? (
-              <WardenDashboard 
-                hostelId={user.hostelId} 
-                onLogout={handleLogout} 
-              />
+            localStorage.getItem('token') || localStorage.getItem('adminToken') ? (
+              <ChiefWarden onLogout={handleLogout} />
             ) : (
-              <Navigate to="/login" />
+              <Navigate to="/login" replace />
             )
           } 
         />
-        
-        {/* Catch-all: Redirect to Home */}
-        <Route path="*" element={<Navigate to="/" />} />
 
-        {/* hospital routses */}
-          <Route path="/hospital" element={<NursePortal />} />
-          <Route path="/hospital-admin" element={<HospitalAdmin />} />
+        {/* Catch-all fallback redirect */}
+        <Route path="*" element={<Navigate to="/" replace />} />
       </Routes>
-    </Router>
+    </BrowserRouter>
   );
 }
 

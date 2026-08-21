@@ -8,7 +8,7 @@ const Login = ({ setUser }) => {
   const [loading, setLoading] = useState(false);
   const navigate = useNavigate();
 
-  // URL CHECK: 
+  // Dynamic API URL for Local and Render Production
   const API_URL = window.location.hostname === 'localhost' 
     ? 'http://localhost:5000' 
     : 'https://messfeedback.onrender.com';
@@ -18,36 +18,32 @@ const Login = ({ setUser }) => {
     setLoading(true);
 
     try {
-      const res = await axios.post(`${API_URL}/api/login/staff`, { 
-        username: creds.username.trim(), // Remove accidental spaces
-        password: creds.password 
+      const res = await axios.post(`${API_URL}/api/admin/login`, { 
+        username: creds.username.trim(),
+        password: creds.password.trim() 
       });
 
-      console.log("Login Response:", res.data); // Helpful for debugging
+      console.log("Login Response:", res.data);
 
       if (res.data.token) {
-        // 1. Store everything in LocalStorage
+        // 1. Store tokens & roles in LocalStorage
         localStorage.setItem('token', res.data.token);
+        localStorage.setItem('adminToken', res.data.token);
         localStorage.setItem('role', res.data.role);
-        // Default to 0 for chief warden if hostelId is missing
+        localStorage.setItem('userRole', res.data.role);
         localStorage.setItem('hostelId', res.data.hostelId || 0); 
         
-        // 2. Update App state
-        setUser(res.data);
-
-        // 3. Navigation Logic
-        // In your backend, admin = 'chief'. Wardens = 'warden'.
-        if (res.data.role === 'chief' || res.data.role === 'admin') {
-          console.log("Redirecting to Admin view...");
-          navigate('/dashboard'); 
-        } else {
-          console.log("Redirecting to Warden view...");
-          navigate('/dashboard');
+        // 2. Update App state if setUser is passed as a prop
+        if (typeof setUser === 'function') {
+          setUser(res.data);
         }
+
+        // 3. Navigate to Dashboard
+        navigate('/dashboard');
       }
     } catch (err) {
       console.error("Login Error:", err);
-      const errorMsg = err.response?.data?.message || "Invalid Username or Password";
+      const errorMsg = err.response?.data?.error || err.response?.data?.message || "Invalid Username or Password";
       alert(errorMsg);
     } finally {
       setLoading(false);
@@ -77,8 +73,8 @@ const Login = ({ setUser }) => {
                   type="text" 
                   placeholder="admin" 
                   required
-                  className="w-full pl-12 pr-4 py-4 bg-slate-50 border border-slate-100 rounded-2xl outline-none focus:ring-2 focus:ring-indigo-500 transition-all text-slate-700"
-                  onChange={e => setCreds({...creds, username: e.target.value})}
+                  className="w-full pl-12 pr-4 py-4 bg-slate-50 border border-slate-100 rounded-2xl outline-none focus:ring-2 focus:ring-indigo-500 transition-all text-slate-700 font-medium"
+                  onChange={e => setCreds({ ...creds, username: e.target.value })}
                 />
               </div>
             </div>
@@ -93,8 +89,8 @@ const Login = ({ setUser }) => {
                   type="password" 
                   placeholder="••••••••" 
                   required
-                  className="w-full pl-12 pr-4 py-4 bg-slate-50 border border-slate-100 rounded-2xl outline-none focus:ring-2 focus:ring-indigo-500 transition-all text-slate-700"
-                  onChange={e => setCreds({...creds, password: e.target.value})}
+                  className="w-full pl-12 pr-4 py-4 bg-slate-50 border border-slate-100 rounded-2xl outline-none focus:ring-2 focus:ring-indigo-500 transition-all text-slate-700 font-medium"
+                  onChange={e => setCreds({ ...creds, password: e.target.value })}
                 />
               </div>
             </div>
