@@ -1,8 +1,8 @@
 import React, { useEffect } from 'react';
 import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom';
-import StudentFeedback from './StudentFeedback';
-import Login from './Login';
-import ChiefWarden from './ChiefWarden';
+import StudentFeedback from './pages/StudentFeedback';
+import Login from './pages/Login';
+import ChiefWarden from './pages/ChiefWarden';
 
 function App() {
   // Re-hydrate session state check
