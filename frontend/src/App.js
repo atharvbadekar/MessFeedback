@@ -1,31 +1,28 @@
-import React, { useEffect } from 'react';
+import React from 'react';
 import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom';
 import StudentFeedback from './pages/StudentFeedback';
 import Login from './pages/Login';
 import ChiefWarden from './pages/ChiefWarden';
 
-function App() {
-  // Re-hydrate session state check
-  useEffect(() => {
-    const token = localStorage.getItem('token') || localStorage.getItem('adminToken');
-    if (token) {
-      // session is active
-    }
-  }, []);
+// Helper component: Checks token directly from localStorage
+const ProtectedRoute = ({ children }) => {
+  const token = localStorage.getItem('token') || localStorage.getItem('adminToken');
+  if (!token) {
+    return <Navigate to="/login" replace />;
+  }
+  return children;
+};
 
+function App() {
   const handleLogout = () => {
-    localStorage.removeItem('token');
-    localStorage.removeItem('adminToken');
-    localStorage.removeItem('role');
-    localStorage.removeItem('userRole');
-    localStorage.removeItem('hostelId');
+    localStorage.clear();
     window.location.href = '/login';
   };
 
   return (
     <BrowserRouter>
       <Routes>
-        {/* Student Portal (Default) */}
+        {/* Student Feedback Portal (Default) */}
         <Route path="/" element={<StudentFeedback />} />
 
         {/* Staff Authentication Portal */}
@@ -35,15 +32,13 @@ function App() {
         <Route 
           path="/dashboard" 
           element={
-            localStorage.getItem('token') || localStorage.getItem('adminToken') ? (
+            <ProtectedRoute>
               <ChiefWarden onLogout={handleLogout} />
-            ) : (
-              <Navigate to="/login" replace />
-            )
+            </ProtectedRoute>
           } 
         />
 
-        {/* Catch-all fallback redirect */}
+        {/* Fallback */}
         <Route path="*" element={<Navigate to="/" replace />} />
       </Routes>
     </BrowserRouter>

@@ -7,7 +7,12 @@ const db = require('./db');
 require('dotenv').config();
 
 const app = express();
-app.use(cors());
+// Allow all origins or specify Vercel
+app.use(cors({
+  origin: '*',
+  methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
+  allowedHeaders: ['Content-Type', 'Authorization']
+}));
 app.use(express.json());
 
 const JWT_SECRET = process.env.JWT_SECRET || 'curaj_secret_mess_jwt_key_2026';
