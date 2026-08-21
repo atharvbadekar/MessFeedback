@@ -5,6 +5,7 @@ import {
   User, KeyRound, Star, Send, CheckCircle2, ChevronRight, 
   Fingerprint, Clock, Sparkles, ShieldCheck 
 } from 'lucide-react';
+import Navbar from './Navbar';
 
 const StudentFeedback = () => {
   const navigate = useNavigate();
@@ -102,84 +103,9 @@ const StudentFeedback = () => {
 
   return (
     <div className="min-h-screen bg-[#F8F9FA] flex flex-col font-sans text-slate-800">
-      
-      {/* =========================================================
-          TOP UNIVERSITY BRANDING NAVBAR WITH LOGO, ACCREDITATIONS & STAFF LOGIN
-          ========================================================= */}
-      <nav className="bg-[#1E3A3A] text-white shadow-md border-b-4 border-emerald-500 z-20">
-        <div className="w-full mx-auto px-4 sm:px-6 lg:px-8">
-          <div className="flex justify-between h-20 items-center">
-            
-            {/* TOP LEFT: CURAJ Logo & Portal Header */}
-            <div className="flex items-center space-x-4">
-              <div className="bg-white p-1.5 rounded-xl shadow-sm flex items-center justify-center">
-                <img 
-                  src="/logos/curaj-logo.png"
-                  alt="CURAJ Logo" 
-                  className="h-12 w-auto object-contain"
-                  onError={(e) => { 
-                    e.target.onerror = null; 
-                    e.target.src = "/images/curaj-logo.png"; 
-                  }}
-                />
-              </div>
-              <div>
-                <h1 className="text-xl sm:text-2xl font-bold tracking-tight leading-tight">
-                  Mega Mess System
-                </h1>
-                <p className="text-xs sm:text-sm text-emerald-200 font-medium">
-                  Central University of Rajasthan
-                </p>
-              </div>
-            </div>
+    <Navbar />
 
-            {/* TOP RIGHT: Accreditations & Direct Staff Login Button */}
-            <div className="flex items-center space-x-4">
-              <div className="hidden md:flex items-center space-x-3 border-r border-emerald-700/50 pr-4">
-                <div className="text-right mr-1">
-                  <p className="text-[10px] text-emerald-200/90 font-black tracking-widest uppercase mb-0.5">Accredited By</p>
-                  <p className="text-xs font-semibold text-white/90">A++ Grade & Top Ranked</p>
-                </div>
-                
-                {/* NAAC Badge */}
-                <div className="bg-white p-1 rounded-lg shadow-sm flex items-center justify-center">
-                  <img 
-                    src="/logos/naac.jpeg" 
-                    alt="NAAC" 
-                    className="h-10 w-auto object-contain"
-                    onError={(e) => { 
-                      e.target.onerror = null; 
-                      e.target.src = "/logos/naac.jpg"; 
-                    }}
-                  />
-                </div>
-                
-                {/* NIRF Badge */}
-                <div className="bg-white p-1 rounded-lg shadow-sm flex items-center justify-center">
-                  <img 
-                    src="/logos/nirf.jpeg" 
-                    alt="NIRF" 
-                    className="h-10 w-auto object-contain"
-                    onError={(e) => { 
-                      e.target.onerror = null; 
-                      e.target.src = "/logos/nirf.jpg"; 
-                    }}
-                  />
-                </div>
-              </div>
-
-              {/* Explicit Staff Login Button */}
-              <button 
-                onClick={() => navigate('/login')}
-                className="flex items-center gap-2 bg-emerald-500 hover:bg-emerald-600 text-[#0F1E1E] px-4 py-2.5 rounded-xl font-bold text-xs sm:text-sm shadow-md transition-all active:scale-95"
-              >
-                <ShieldCheck size={18} /> Staff Login
-              </button>
-            </div>
-
-          </div>
-        </div>
-      </nav>
+          
 
       {/* STUDENT FORM BODY */}
       <div className="flex-1 flex flex-col items-center justify-center p-4">

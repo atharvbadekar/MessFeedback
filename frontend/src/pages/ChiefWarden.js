@@ -6,7 +6,7 @@ import {
 } from 'lucide-react';
 import axios from 'axios';
 import StaffManagement from './StaffManagement';
-
+import Navbar from './Navbar';
 import jsPDF from 'jspdf';
 import autoTable from 'jspdf-autotable';
 
@@ -244,74 +244,10 @@ const ChiefWarden = ({ onLogout }) => {
 
     return (
         <div className="min-h-screen bg-[#F8F9FA] flex flex-col">
-            
-            {/* =========================================================
-                TOP UNIVERSITY BRANDING NAVBAR WITH LOGO & ACCREDITATIONS
-                ========================================================= */}
-            <nav className="bg-[#1E3A3A] text-white shadow-md border-b-4 border-emerald-500 z-20">
-                <div className="w-full mx-auto px-4 sm:px-6 lg:px-8">
-                    <div className="flex justify-between h-20 items-center">
-                        
-                        {/* TOP LEFT: CURAJ Logo & Portal Header */}
-                        <div className="flex items-center space-x-4">
-                            <div className="bg-white p-1.5 rounded-xl shadow-sm flex items-center justify-center">
-                                <img 
-                                    src="/logos/curaj-logo.png"
-                                    alt="CURAJ Logo" 
-                                    className="h-12 w-auto object-contain"
-                                    onError={(e) => { 
-                                        e.target.onerror = null; 
-                                        e.target.src = "/images/curaj-logo.png"; 
-                                    }}
-                                />
-                            </div>
-                            <div>
-                                <h1 className="text-xl sm:text-2xl font-bold tracking-tight leading-tight">
-                                    Mega Mess System
-                                </h1>
-                                <p className="text-xs sm:text-sm text-emerald-200 font-medium">
-                                    Central University of Rajasthan
-                                </p>
-                            </div>
-                        </div>
-
-                        {/* TOP RIGHT: Accreditations (NAAC & NIRF) */}
-                        <div className="flex items-center space-x-4">
-                            <div className="hidden md:block text-right mr-1">
-                                <p className="text-[10px] text-emerald-200/90 font-black tracking-widest uppercase mb-0.5">Accredited By</p>
-                                <p className="text-xs font-semibold text-white/90">A++ Grade & Top Ranked</p>
-                            </div>
-                            
-                            {/* NAAC Badge */}
-                            <div className="bg-white p-1 rounded-lg shadow-sm flex items-center justify-center">
-                                <img 
-                                    src="/logos/naac.jpeg" 
-                                    alt="NAAC" 
-                                    className="h-10 w-auto object-contain"
-                                    onError={(e) => { 
-                                        e.target.onerror = null; 
-                                        e.target.src = "/logos/naac.jpg"; 
-                                    }}
-                                />
-                            </div>
-                            
-                            {/* NIRF Badge */}
-                            <div className="bg-white p-1 rounded-lg shadow-sm flex items-center justify-center">
-                                <img 
-                                    src="/logos/nirf.jpeg" 
-                                    alt="NIRF" 
-                                    className="h-10 w-auto object-contain"
-                                    onError={(e) => { 
-                                        e.target.onerror = null; 
-                                        e.target.src = "/logos/nirf.jpg"; 
-                                    }}
-                                />
-                            </div>
-                        </div>
-
-                    </div>
-                </div>
-            </nav>
+    <Navbar />
+    <div className="flex-1 flex overflow-hidden">
+    </div>
+  
 
             {/* DASHBOARD BODY */}
             <div className="flex-1 flex overflow-hidden">
