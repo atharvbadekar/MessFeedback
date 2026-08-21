@@ -245,10 +245,6 @@ const ChiefWarden = ({ onLogout }) => {
     return (
         <div className="min-h-screen bg-[#F8F9FA] flex flex-col">
     <Navbar />
-    <div className="flex-1 flex overflow-hidden">
-    </div>
-  
-
             {/* DASHBOARD BODY */}
             <div className="flex-1 flex overflow-hidden">
                 
