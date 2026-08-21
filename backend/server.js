@@ -1,415 +1,402 @@
+require('dotenv').config();
 const express = require('express');
 const cors = require('cors');
 const bcrypt = require('bcryptjs');
 const jwt = require('jsonwebtoken');
-// const axios = require('axios'); // <-- UNCOMMENT FOR FAST2SMS IN PRODUCTION
-const db = require('./db');
-require('dotenv').config();
+const pool = require('./db');
 
 const app = express();
-// Allow all origins or specify Vercel
+const PORT = process.env.PORT || 5000;
+const JWT_SECRET = process.env.JWT_SECRET || 'curaj_secret_mess_jwt_key_2026';
+
+// CORS Configuration
 app.use(cors({
   origin: '*',
   methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
   allowedHeaders: ['Content-Type', 'Authorization']
 }));
+
 app.use(express.json());
 
-const JWT_SECRET = process.env.JWT_SECRET || 'curaj_secret_mess_jwt_key_2026';
-
-// In-Memory OTP cache: { "2023MSBC001": { otp: "123456", expiresAt: timestamp } }
+// In-memory OTP store: { [collegeId]: { otp, expiresAt } }
 const otpStore = {};
 
-// --- AUTH MIDDLEWARE ---
+// Initialize Schema with historical feedback submissions table
+const initDatabase = async () => {
+  try {
+    await pool.query(`
+      CREATE TABLE IF NOT EXISTS wardens (
+        id SERIAL PRIMARY KEY,
+        username VARCHAR(50) UNIQUE NOT NULL,
+        password VARCHAR(255) NOT NULL,
+        role VARCHAR(20) NOT NULL DEFAULT 'warden',
+        hostel_id VARCHAR(10) NOT NULL,
+        created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
+      );
+
+      CREATE TABLE IF NOT EXISTS students (
+        id SERIAL PRIMARY KEY,
+        college_id VARCHAR(50) UNIQUE NOT NULL,
+        name VARCHAR(100) NOT NULL,
+        email VARCHAR(100),
+        hostel_id VARCHAR(10) NOT NULL,
+        mobile VARCHAR(20),
+        created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
+      );
+
+      CREATE TABLE IF NOT EXISTS feedback_submissions (
+        id SERIAL PRIMARY KEY,
+        college_id VARCHAR(50) REFERENCES students(college_id) ON DELETE CASCADE,
+        hostel_id VARCHAR(10) NOT NULL,
+        answers INTEGER[] NOT NULL,
+        comments TEXT,
+        month_year VARCHAR(7) NOT NULL, -- e.g. '2026-08'
+        submitted_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
+      );
+
+      CREATE UNIQUE INDEX IF NOT EXISTS idx_student_month ON feedback_submissions(college_id, month_year);
+    `);
+
+    // Ensure default chief admin exists
+    const adminCheck = await pool.query("SELECT * FROM wardens WHERE username = 'admin'");
+    if (adminCheck.rows.length === 0) {
+      const hashedPassword = await bcrypt.hash('admin123', 10);
+      await pool.query(
+        "INSERT INTO wardens (username, password, role, hostel_id) VALUES ($1, $2, $3, $4)",
+        ['admin', hashedPassword, 'admin', 'B1']
+      );
+    }
+  } catch (err) {
+    console.error('Database Init Error:', err);
+  }
+};
+
+initDatabase();
+
+// JWT Middleware
 const authenticateToken = (req, res, next) => {
   const authHeader = req.headers['authorization'];
   const token = authHeader && authHeader.split(' ')[1];
-
-  if (!token) return res.status(401).json({ error: 'Access token required' });
+  if (!token) return res.status(401).json({ error: 'Access token missing' });
 
   jwt.verify(token, JWT_SECRET, (err, user) => {
-    if (err) return res.status(403).json({ error: 'Invalid or expired session token' });
+    if (err) return res.status(403).json({ error: 'Invalid or expired token' });
     req.user = user;
     next();
   });
 };
 
-// Helper: Normalize hostel name strictly into B1 - B8
-const normalizeHostel = (input) => {
-  if (!input) return 'B1';
-  const str = String(input).trim().toUpperCase().replace('HOSTEL', '').trim();
-  const numMatch = str.match(/[1-8]/);
-  const validNum = numMatch ? numMatch[0] : '1';
-  return `B${validNum}`;
-};
+// Root Health Check
+app.get('/', (req, res) => {
+  res.send('CURAJ Mega Mess Feedback API is running live!');
+});
 
 // ==========================================
-// 1. STUDENT VERIFICATION & OTP ROUTES
+// STUDENT FLOW (1 Feedback / Month Limit)
 // ==========================================
 
-// Step 1: Verify Student ID & Issue OTP
+// 1. Verify Student & Request OTP
 app.post('/api/student/verify', async (req, res) => {
-  const { collegeId } = req.body;
-  if (!collegeId) return res.status(400).json({ error: 'College ID is required' });
-
-  const cleanId = String(collegeId).trim().toUpperCase();
-
   try {
-    const studentResult = await db.query(
-      'SELECT * FROM students WHERE UPPER(college_id) = $1',
-      [cleanId]
+    const { collegeId } = req.body;
+    if (!collegeId) return res.status(400).json({ error: 'College ID is required' });
+
+    const studentResult = await pool.query(
+      'SELECT college_id, name, email, hostel_id, mobile FROM students WHERE college_id = $1',
+      [collegeId.trim()]
     );
 
     if (studentResult.rows.length === 0) {
-      return res.status(404).json({ error: 'Student ID not registered in database records.' });
+      return res.status(404).json({ error: 'Student enrollment ID not found in records.' });
     }
 
     const student = studentResult.rows[0];
+    const currentMonthYear = new Date().toISOString().slice(0, 7); // 'YYYY-MM'
 
-    const feedbackCheck = await db.query(
-      'SELECT id FROM mess_feedbacks WHERE student_id = $1 LIMIT 1',
-      [student.id]
+    // Check if student already submitted feedback for the current month
+    const existingFeedback = await pool.query(
+      'SELECT submitted_at FROM feedback_submissions WHERE college_id = $1 AND month_year = $2',
+      [student.college_id, currentMonthYear]
     );
 
-    if (feedbackCheck.rows.length > 0) {
-      return res.status(400).json({ error: 'Feedback has already been submitted for this semester.' });
+    if (existingFeedback.rows.length > 0) {
+      const submissionDate = new Date(existingFeedback.rows[0].submitted_at).toLocaleDateString();
+      return res.status(400).json({
+        error: `You have already submitted feedback for this month on ${submissionDate}. The next feedback window opens on the 1st of next month.`
+      });
     }
 
-    const generatedOtp = Math.floor(100000 + Math.random() * 900000).toString();
-
-    otpStore[cleanId] = {
-      otp: generatedOtp,
-      expiresAt: Date.now() + 5 * 60 * 1000
+    // Generate 6-digit OTP (expires in 10 mins)
+    const otp = Math.floor(100000 + Math.random() * 900000).toString();
+    otpStore[student.college_id] = {
+      otp,
+      expiresAt: Date.now() + 10 * 60 * 1000
     };
-
-    console.log(`🔑 [TEST OTP] Generated for ${cleanId} (${student.name} - Hostel ${student.hostel_id}): ${generatedOtp}`);
-
-    /* =================================================================
-       === FAST2SMS INTEGRATION (UNCOMMENT WHEN READY FOR REAL SMS) ===
-       =================================================================
-       try {
-           await axios.post('https://www.fast2sms.com/dev/bulkV2', {
-               route: 'otp',
-               variables_values: generatedOtp,
-               numbers: student.mobile.toString()
-           }, {
-               headers: { 'authorization': process.env.FAST2SMS_API_KEY }
-           });
-       } catch (smsErr) {
-           console.error('Fast2SMS Error:', smsErr.response?.data || smsErr.message);
-       }
-       ================================================================= */
 
     res.json({
       success: true,
-      message: 'Student verified and OTP generated.',
       student: {
-        id: student.id,
-        name: student.name,
-        email: student.email || '',
         collegeId: student.college_id,
+        name: student.name,
+        email: student.email,
         hostelId: student.hostel_id,
         mobile: student.mobile
       },
-      debugOtp: generatedOtp
+      debugOtp: otp // Displayed on screen for instant testing
     });
-
   } catch (err) {
     console.error('Verify error:', err);
-    res.status(500).json({ error: 'Database verification failed: ' + err.message });
+    res.status(500).json({ error: 'Server error during verification.' });
   }
 });
 
-// Step 2: Validate OTP
-app.post('/api/student/verify-otp', async (req, res) => {
+// 2. Verify OTP
+app.post('/api/student/verify-otp', (req, res) => {
   const { collegeId, otp } = req.body;
+  const record = otpStore[collegeId];
 
-  if (!collegeId || !otp) {
-    return res.status(400).json({ error: 'College ID and OTP are required' });
+  if (!record) return res.status(400).json({ error: 'No OTP requested or OTP has expired.' });
+  if (Date.now() > record.expiresAt) {
+    delete otpStore[collegeId];
+    return res.status(400).json({ error: 'OTP has expired. Please request a new one.' });
+  }
+  if (record.otp !== String(otp).trim()) {
+    return res.status(400).json({ error: 'Incorrect OTP. Please enter the valid code.' });
   }
 
-  const cleanId = String(collegeId).trim().toUpperCase();
-  const cleanOtp = String(otp).trim();
-  const cachedRecord = otpStore[cleanId];
-
-  if (!cachedRecord) {
-    return res.status(400).json({ error: 'No active OTP found. Please request a new code.' });
-  }
-
-  if (Date.now() > cachedRecord.expiresAt) {
-    delete otpStore[cleanId];
-    return res.status(400).json({ error: 'OTP has expired. Please request a new code.' });
-  }
-
-  if (String(cachedRecord.otp).trim() !== cleanOtp) {
-    return res.status(400).json({ error: 'Invalid OTP. Please check the code.' });
-  }
-
-  delete otpStore[cleanId];
-  res.json({ success: true, message: 'OTP verified successfully' });
+  delete otpStore[collegeId];
+  res.json({ success: true, message: 'OTP verified successfully.' });
 });
 
-// ==========================================
-// 2. SUBMIT 10-QUESTION MESS FEEDBACK
-// ==========================================
-
+// 3. Submit Feedback (Permanent Time-Stamped Record)
 app.post('/api/feedback/submit', async (req, res) => {
-  const { collegeId, answers, comments } = req.body;
-
-  if (!collegeId || !Array.isArray(answers) || answers.length !== 10) {
-    return res.status(400).json({ error: 'All 10 rating scores and valid Student ID are required.' });
-  }
-
-  const cleanId = String(collegeId).trim().toUpperCase();
-
   try {
-    const studentResult = await db.query(
-      'SELECT id FROM students WHERE UPPER(college_id) = $1',
-      [cleanId]
+    const { collegeId, answers, comments } = req.body;
+    if (!collegeId || !answers || !Array.isArray(answers) || answers.length !== 10) {
+      return res.status(400).json({ error: 'All 10 quality questions must be rated.' });
+    }
+
+    const studentResult = await pool.query(
+      'SELECT hostel_id FROM students WHERE college_id = $1',
+      [collegeId.trim()]
     );
 
     if (studentResult.rows.length === 0) {
-      return res.status(404).json({ error: 'Student record not found in system.' });
+      return res.status(404).json({ error: 'Student not found.' });
     }
 
-    const studentId = studentResult.rows[0].id;
+    const hostelId = studentResult.rows[0].hostel_id;
+    const currentMonthYear = new Date().toISOString().slice(0, 7);
 
-    const duplicateCheck = await db.query(
-      'SELECT id FROM mess_feedbacks WHERE student_id = $1',
-      [studentId]
+    // Insert new historical submission
+    await pool.query(
+      `INSERT INTO feedback_submissions (college_id, hostel_id, answers, comments, month_year, submitted_at)
+       VALUES ($1, $2, $3, $4, $5, NOW())
+       ON CONFLICT (college_id, month_year) 
+       DO UPDATE SET answers = EXCLUDED.answers, comments = EXCLUDED.comments, submitted_at = NOW()`,
+      [collegeId.trim(), hostelId, answers, comments || '', currentMonthYear]
     );
 
-    if (duplicateCheck.rows.length > 0) {
-      return res.status(400).json({ error: 'Feedback already submitted by this student.' });
-    }
-
-    await db.query(
-      `INSERT INTO mess_feedbacks (student_id, answers, comments, is_submitted, submitted_at)
-       VALUES ($1, $2, $3, true, NOW())`,
-      [studentId, answers, comments ? String(comments).trim() : '']
-    );
-
-    res.json({ success: true, message: 'Mess assessment recorded successfully.' });
+    res.json({ success: true, message: 'Monthly mess assessment submitted successfully!' });
   } catch (err) {
     console.error('Feedback submission error:', err);
-    res.status(500).json({ error: 'Failed to record feedback in database.' });
+    res.status(500).json({ error: 'Database error saving assessment.' });
   }
 });
 
 // ==========================================
-// 3. ADMIN & WARDEN AUTHENTICATION
+// ADMIN & WARDEN AUTHENTICATION
 // ==========================================
 
 app.post('/api/admin/login', async (req, res) => {
-  const { username, password } = req.body;
-
-  if (!username || !password) {
-    return res.status(400).json({ error: 'Username and password are required' });
-  }
-
-  const cleanUsername = String(username).trim().toLowerCase();
-  const cleanPassword = String(password).trim();
-
-  // Master Emergency Admin
-  if (cleanUsername === 'admin' && cleanPassword === 'admin123') {
-    const token = jwt.sign(
-      { username: 'admin', role: 'admin', hostelId: null },
-      JWT_SECRET,
-      { expiresIn: '12h' }
-    );
-    return res.json({ success: true, token, role: 'admin', hostelId: null });
-  }
-
   try {
-    const result = await db.query(
-      'SELECT * FROM users WHERE LOWER(username) = LOWER($1)',
-      [cleanUsername]
-    );
-
-    if (result.rows.length === 0) {
-      return res.status(401).json({ error: 'Invalid username or password' });
+    const { username, password } = req.body;
+    const wardenResult = await pool.query('SELECT * FROM wardens WHERE username = $1', [username.trim()]);
+    if (wardenResult.rows.length === 0) {
+      return res.status(400).json({ error: 'Invalid username or password.' });
     }
 
-    const user = result.rows[0];
-    const isMatch = await bcrypt.compare(cleanPassword, user.password_hash);
-    if (!isMatch) {
-      return res.status(401).json({ error: 'Invalid username or password' });
-    }
+    const user = wardenResult.rows[0];
+    const isMatch = await bcrypt.compare(password, user.password);
+    if (!isMatch) return res.status(400).json({ error: 'Invalid username or password.' });
 
     const token = jwt.sign(
       { id: user.id, username: user.username, role: user.role, hostelId: user.hostel_id },
       JWT_SECRET,
-      { expiresIn: '12h' }
+      { expiresIn: '24h' }
     );
 
-    res.json({ success: true, token, role: user.role, hostelId: user.hostel_id });
+    res.json({
+      token,
+      role: user.role,
+      hostelId: user.hostel_id,
+      username: user.username
+    });
   } catch (err) {
     console.error('Login error:', err);
-    res.status(500).json({ error: 'Authentication engine failure: ' + err.message });
+    res.status(500).json({ error: 'Server error during authentication.' });
   }
 });
 
 // ==========================================
-// 4. WARDEN / STAFF MANAGEMENT ROUTES
+// ADMIN DATA & TIME-SERIES ANALYTICS
 // ==========================================
 
-app.get('/api/admin/wardens', authenticateToken, async (req, res) => {
-  if (req.user.role !== 'admin') {
-    return res.status(403).json({ error: 'Access restricted to administrators' });
-  }
-
+// Get All Students with their Latest Submission Data
+app.get('/api/admin/students', authenticateToken, async (req, res) => {
   try {
-    const result = await db.query(
-      `SELECT id, username, hostel_id AS "hostelId", role, created_at 
-       FROM users 
-       WHERE role = 'warden' 
-       ORDER BY hostel_id ASC, id ASC`
+    const query = `
+      SELECT 
+        s.college_id AS "collegeId",
+        s.name,
+        s.email,
+        s.hostel_id AS "hostelId",
+        s.mobile,
+        f.answers,
+        f.comments,
+        f.submitted_at AS "submittedAt",
+        f.month_year AS "monthYear",
+        CASE WHEN f.id IS NOT NULL THEN true ELSE false END AS "isSubmitted"
+      FROM students s
+      LEFT JOIN LATERAL (
+        SELECT answers, comments, submitted_at, month_year, id
+        FROM feedback_submissions
+        WHERE college_id = s.college_id
+        ORDER BY submitted_at DESC
+        LIMIT 1
+      ) f ON true
+      ORDER BY s.hostel_id ASC, s.college_id ASC;
+    `;
+
+    const { rows } = await pool.query(query);
+
+    const formatted = rows.map(r => ({
+      collegeId: r.collegeId,
+      name: r.name,
+      email: r.email,
+      hostelId: r.hostelId,
+      mobile: r.mobile,
+      feedback: {
+        isSubmitted: r.isSubmitted,
+        answers: r.answers || [],
+        comments: r.comments || '',
+        submittedAt: r.submittedAt || null,
+        monthYear: r.monthYear || null
+      }
+    }));
+
+    res.json(formatted);
+  } catch (err) {
+    console.error('Fetch students error:', err);
+    res.status(500).json({ error: 'Failed to retrieve student records.' });
+  }
+});
+
+// Historical Time-Series Analytics (1m, 3m, 6m, all)
+app.get('/api/admin/analytics-trends', authenticateToken, async (req, res) => {
+  try {
+    const { range, hostelId } = req.query; // range: '1m', '3m', '6m', 'all'
+
+    let timeFilter = '';
+    if (range === '1m') {
+      timeFilter = "AND submitted_at >= NOW() - INTERVAL '1 month'";
+    } else if (range === '3m') {
+      timeFilter = "AND submitted_at >= NOW() - INTERVAL '3 months'";
+    } else if (range === '6m') {
+      timeFilter = "AND submitted_at >= NOW() - INTERVAL '6 months'";
+    }
+
+    let hostelFilter = '';
+    const params = [];
+    if (hostelId && hostelId !== 'ALL') {
+      params.push(hostelId.toUpperCase());
+      hostelFilter = `AND hostel_id = $${params.length}`;
+    }
+
+    const query = `
+      SELECT 
+        TO_CHAR(submitted_at, 'Mon YYYY') AS month_label,
+        TO_CHAR(submitted_at, 'YYYY-MM') AS sort_key,
+        COUNT(*)::int AS total_submissions,
+        ROUND(AVG((SELECT AVG(val) FROM UNNEST(answers) AS val))::numeric, 2) AS overall_avg
+      FROM feedback_submissions
+      WHERE 1=1 ${timeFilter} ${hostelFilter}
+      GROUP BY month_label, sort_key
+      ORDER BY sort_key ASC;
+    `;
+
+    const { rows } = await pool.query(query, params);
+    res.json(rows);
+  } catch (err) {
+    console.error('Analytics trend error:', err);
+    res.status(500).json({ error: 'Failed to compute analytics trends.' });
+  }
+});
+
+// Bulk Student Upload
+app.post('/api/admin/bulk-students', authenticateToken, async (req, res) => {
+  try {
+    const { studentsList, hostelId } = req.body;
+    if (!studentsList || !Array.isArray(studentsList)) {
+      return res.status(400).json({ error: 'Valid student array is required.' });
+    }
+
+    for (const s of studentsList) {
+      const targetHostel = (s.hostelId || hostelId || 'B1').toUpperCase();
+      await pool.query(
+        `INSERT INTO students (college_id, name, email, hostel_id, mobile)
+         VALUES ($1, $2, $3, $4, $5)
+         ON CONFLICT (college_id) 
+         DO UPDATE SET name = EXCLUDED.name, email = EXCLUDED.email, hostel_id = EXCLUDED.hostel_id, mobile = EXCLUDED.mobile`,
+        [s.collegeId.trim(), s.name.trim(), s.email?.trim() || null, targetHostel, s.mobile?.trim() || null]
+      );
+    }
+
+    res.json({ success: true, message: `Successfully imported ${studentsList.length} students.` });
+  } catch (err) {
+    console.error('Bulk upload error:', err);
+    res.status(500).json({ error: 'Failed to import student dataset.' });
+  }
+});
+
+// Staff Management
+app.get('/api/admin/wardens', authenticateToken, async (req, res) => {
+  try {
+    const result = await pool.query(
+      "SELECT id, username, role, hostel_id AS \"hostelId\", created_at AS \"createdAt\" FROM wardens WHERE role != 'admin' ORDER BY hostel_id ASC"
     );
     res.json(result.rows);
   } catch (err) {
-    res.status(500).json({ error: 'Failed to retrieve wardens: ' + err.message });
+    res.status(500).json({ error: 'Failed to fetch staff accounts.' });
   }
 });
 
-app.post('/api/admin/create-warden', authenticateToken, async (req, res) => {
-  if (req.user.role !== 'admin') {
-    return res.status(403).json({ error: 'Access restricted to administrators' });
-  }
-
-  const { username, password, hostelId } = req.body;
-  if (!username || !password || !hostelId) {
-    return res.status(400).json({ error: 'Username, password, and hostel assignment are required' });
-  }
-
-  const cleanUsername = String(username).trim().toLowerCase();
-  const targetHostel = normalizeHostel(hostelId);
-
+app.post('/api/admin/wardens', authenticateToken, async (req, res) => {
   try {
-    const existing = await db.query('SELECT id FROM users WHERE LOWER(username) = $1', [cleanUsername]);
-    if (existing.rows.length > 0) {
-      return res.status(400).json({ error: `Username "${cleanUsername}" is already taken.` });
-    }
+    const { username, password, hostelId } = req.body;
+    if (!username || !password || !hostelId) return res.status(400).json({ error: 'All fields are required.' });
 
-    const hashedPassword = await bcrypt.hash(String(password).trim(), 10);
-    await db.query(
-      `INSERT INTO users (username, password_hash, role, hostel_id) 
-       VALUES ($1, $2, 'warden', $3)`,
-      [cleanUsername, hashedPassword, targetHostel]
+    const hashedPassword = await bcrypt.hash(password, 10);
+    await pool.query(
+      "INSERT INTO wardens (username, password, role, hostel_id) VALUES ($1, $2, 'warden', $3)",
+      [username.trim(), hashedPassword, hostelId.toUpperCase()]
     );
 
-    res.json({ success: true, message: `Warden "${cleanUsername}" registered for Hostel ${targetHostel}!` });
+    res.json({ success: true, message: 'Warden registered successfully.' });
   } catch (err) {
-    res.status(500).json({ error: 'Failed to register warden: ' + err.message });
+    res.status(400).json({ error: 'Username already exists.' });
   }
 });
 
 app.delete('/api/admin/wardens/:id', authenticateToken, async (req, res) => {
-  if (req.user.role !== 'admin') {
-    return res.status(403).json({ error: 'Access restricted to administrators' });
-  }
-
   try {
-    await db.query('DELETE FROM users WHERE id = $1 AND role = $2', [parseInt(req.params.id, 10), 'warden']);
+    await pool.query('DELETE FROM wardens WHERE id = $1', [req.params.id]);
     res.json({ success: true, message: 'Warden account deleted.' });
   } catch (err) {
-    res.status(500).json({ error: 'Failed to delete warden: ' + err.message });
+    res.status(500).json({ error: 'Failed to remove account.' });
   }
 });
 
-// ==========================================
-// 5. BULK CSV IMPORT & DASHBOARD DATA
-// ==========================================
-
-const handleBulkStudentInsert = async (req, res) => {
-  const rawList = req.body.studentsList || req.body.students;
-  const defaultHostel = req.body.hostelId ? normalizeHostel(req.body.hostelId) : 'B1';
-
-  if (!rawList || !Array.isArray(rawList) || rawList.length === 0) {
-    return res.status(400).json({ error: 'Valid students array is required.' });
-  }
-
-  try {
-    let insertedCount = 0;
-
-    for (const item of rawList) {
-      const collegeId = item.collegeId || item.collegeid || item['college id'] || item.id;
-      const name = item.name || item['student name'] || 'Student';
-      const email = item.email || item['email id'] || item['student email'] || null;
-      const rawHostel = item.hostelId || item.hostelid || item['hostel id'] || item.hostel || defaultHostel;
-      const hostelId = normalizeHostel(rawHostel);
-      const rawMobile = item.mobile || item.phone || item.contact || null;
-      const mobile = rawMobile ? parseInt(String(rawMobile).replace(/\D/g, ''), 10) || null : null;
-
-      if (!collegeId) continue;
-
-      const cleanId = String(collegeId).trim().toUpperCase();
-      const cleanName = String(name).trim();
-      const cleanEmail = email ? String(email).trim().toLowerCase() : null;
-
-      await db.query(
-        `INSERT INTO students (college_id, name, email, hostel_id, mobile)
-         VALUES ($1, $2, $3, $4, $5)
-         ON CONFLICT (college_id) DO UPDATE 
-         SET name = EXCLUDED.name, 
-             email = COALESCE(EXCLUDED.email, students.email),
-             hostel_id = EXCLUDED.hostel_id, 
-             mobile = COALESCE(EXCLUDED.mobile, students.mobile)`,
-        [cleanId, cleanName, cleanEmail, hostelId, mobile]
-      );
-
-      insertedCount++;
-    }
-
-    res.json({ success: true, message: `Successfully processed ${insertedCount} student records.` });
-  } catch (err) {
-    console.error('Bulk upload error:', err);
-    res.status(500).json({ error: 'Database bulk insert failed: ' + err.message });
-  }
-};
-
-app.post('/api/admin/bulk-students', authenticateToken, handleBulkStudentInsert);
-app.post('/api/warden/upload', authenticateToken, handleBulkStudentInsert);
-
-app.get('/api/admin/students', authenticateToken, async (req, res) => {
-  try {
-    const { hostelId, role } = req.user;
-
-    let query = `
-      SELECT 
-        s.id,
-        s.name,
-        s.email,
-        s.college_id AS "collegeId",
-        s.mobile,
-        s.hostel_id AS "hostelId",
-        CASE 
-          WHEN mf.id IS NOT NULL THEN json_build_object(
-            'answers', mf.answers,
-            'comments', mf.comments,
-            'isSubmitted', mf.is_submitted,
-            'submittedAt', mf.submitted_at
-          )
-          ELSE NULL
-        END AS feedback
-      FROM students s
-      LEFT JOIN mess_feedbacks mf ON s.id = mf.student_id
-    `;
-
-    const params = [];
-    if (role === 'warden' && hostelId) {
-      query += ` WHERE UPPER(s.hostel_id) = UPPER($1)`;
-      params.push(hostelId);
-    }
-
-    query += ` ORDER BY s.hostel_id ASC, s.id ASC`;
-
-    const result = await db.query(query, params);
-    res.json(result.rows);
-  } catch (err) {
-    console.error('Fetch students error:', err);
-    res.status(500).json({ error: 'Failed to retrieve records: ' + err.message });
-  }
+app.listen(PORT, () => {
+  console.log(`Server active on port ${PORT}`);
 });
-
-const PORT = process.env.PORT || 5000;
-app.listen(PORT, () => console.log(`Mess Feedback Backend (PostgreSQL) running on port ${PORT}`));
