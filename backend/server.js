@@ -274,25 +274,26 @@ app.post('/api/admin/login', async (req, res) => {
 // =========================================================================
 
 // Retrieve Student Records with their Latest Feedback
+// Retrieve Student Records with their Latest Feedback
 app.get('/api/admin/students', authenticateToken, async (req, res) => {
   try {
     const query = `
       SELECT 
-        s.college_id AS "collegeId",
+        s.college_id,
         s.name,
         s.email,
-        s.hostel_id AS "hostelId",
+        s.hostel_id,
         s.mobile,
         f.answers,
         f.comments,
-        f.submitted_at AS "submittedAt",
-        f.month_year AS "monthYear",
-        CASE WHEN f.id IS NOT NULL THEN true ELSE false END AS "isSubmitted"
+        f.submitted_at,
+        f.month_year,
+        f.id AS feedback_id
       FROM students s
       LEFT JOIN LATERAL (
-        SELECT answers, comments, submitted_at, month_year, id
+        SELECT id, answers, comments, submitted_at, month_year
         FROM feedback_submissions
-        WHERE college_id = s.college_id
+        WHERE UPPER(college_id) = UPPER(s.college_id)
         ORDER BY submitted_at DESC
         LIMIT 1
       ) f ON true
@@ -301,20 +302,23 @@ app.get('/api/admin/students', authenticateToken, async (req, res) => {
 
     const { rows } = await pool.query(query);
 
-    const formatted = rows.map(r => ({
-      collegeId: r.collegeId,
-      name: r.name,
-      email: r.email,
-      hostelId: r.hostelId,
-      mobile: r.mobile,
-      feedback: {
-        isSubmitted: r.isSubmitted,
-        answers: r.answers || [],
-        comments: r.comments || '',
-        submittedAt: r.submittedAt || null,
-        monthYear: r.monthYear || null
-      }
-    }));
+    const formatted = rows.map(r => {
+      const isSub = r.feedback_id !== null && r.feedback_id !== undefined;
+      return {
+        collegeId: r.college_id || '',
+        name: r.name || 'Student',
+        email: r.email || '',
+        hostelId: (r.hostel_id || 'B1').toUpperCase().trim(),
+        mobile: r.mobile || '',
+        feedback: {
+          isSubmitted: isSub,
+          answers: isSub && Array.isArray(r.answers) ? r.answers : [],
+          comments: r.comments || '',
+          submittedAt: r.submitted_at || null,
+          monthYear: r.month_year || null
+        }
+      };
+    });
 
     res.json(formatted);
   } catch (err) {
