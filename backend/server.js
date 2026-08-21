@@ -436,20 +436,40 @@ app.get('/api/admin/wardens', authenticateToken, async (req, res) => {
 app.post('/api/admin/wardens', authenticateToken, async (req, res) => {
   try {
     const { username, password, hostelId } = req.body;
+
     if (!username || !password || !hostelId) {
-      return res.status(400).json({ error: 'All fields (username, password, hostel) are required.' });
+      return res.status(400).json({ error: 'All fields (username, password, and hostel) are required.' });
     }
 
+    const cleanUsername = username.trim().toLowerCase();
+    const cleanHostel = hostelId.trim().toUpperCase();
+
+    // 1. Explicit check if username already exists
+    const existing = await pool.query('SELECT id FROM wardens WHERE LOWER(username) = $1', [cleanUsername]);
+    if (existing.rows.length > 0) {
+      return res.status(400).json({ error: `Username "${username}" is already taken. Please choose another.` });
+    }
+
+    // 2. Hash password and insert
     const hashedPassword = await bcrypt.hash(password.trim(), 10);
-    await pool.query(
-      "INSERT INTO wardens (username, password, role, hostel_id) VALUES ($1, $2, 'warden', $3)",
-      [username.trim(), hashedPassword, hostelId.toUpperCase()]
+    const result = await pool.query(
+      `INSERT INTO wardens (username, password, role, hostel_id) 
+       VALUES ($1, $2, 'warden', $3) 
+       RETURNING id, username, role, hostel_id AS "hostelId"`,
+      [cleanUsername, hashedPassword, cleanHostel]
     );
 
-    res.json({ success: true, message: 'Warden registered successfully.' });
+    res.json({ 
+      success: true, 
+      message: `Warden ${username} registered successfully for Hostel ${cleanHostel}!`,
+      warden: result.rows[0]
+    });
   } catch (err) {
-    console.error('Create warden error:', err);
-    res.status(400).json({ error: 'Username already taken or database error.' });
+    console.error('Create warden detailed error:', err);
+    // Returns the exact database error so you can see what went wrong
+    res.status(500).json({ 
+      error: err.message || 'Database error while registering warden.' 
+    });
   }
 });
 
@@ -463,6 +483,8 @@ app.delete('/api/admin/wardens/:id', authenticateToken, async (req, res) => {
     res.status(500).json({ error: 'Failed to delete warden account.' });
   }
 });
+
+
 
 // =========================================================================
 // START SERVER

@@ -145,6 +145,8 @@ const ChiefWarden = ({ onLogout }) => {
         reader.readAsText(file);
     };
 
+    
+
 
     
 
@@ -252,6 +254,8 @@ const ChiefWarden = ({ onLogout }) => {
             }]
         };
     };
+
+    
 
     const getChartDataForHostel = (hId) => {
         const hStudents = allStudents.filter(s => String(s.hostelId).toUpperCase() === String(hId).toUpperCase());
