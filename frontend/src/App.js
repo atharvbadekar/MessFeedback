@@ -1,20 +1,15 @@
-import React, { useState, useEffect } from 'react';
+import React, { useEffect } from 'react';
 import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom';
-import StudentFeedback from './pages/StudentFeedback';
-import Login from './pages/Login';
-import ChiefWarden from './pages/ChiefWarden';
+import StudentFeedback from './StudentFeedback';
+import Login from './Login';
+import ChiefWarden from './ChiefWarden';
 
 function App() {
-  const [user, setUser] = useState(null);
-
-  // Re-hydrate session state from localStorage on page reload
+  // Re-hydrate session state check
   useEffect(() => {
     const token = localStorage.getItem('token') || localStorage.getItem('adminToken');
-    const role = localStorage.getItem('role') || localStorage.getItem('userRole');
-    const hostelId = localStorage.getItem('hostelId');
-
     if (token) {
-      setUser({ token, role, hostelId });
+      // session is active
     }
   }, []);
 
@@ -24,7 +19,6 @@ function App() {
     localStorage.removeItem('role');
     localStorage.removeItem('userRole');
     localStorage.removeItem('hostelId');
-    setUser(null);
     window.location.href = '/login';
   };
 
@@ -35,9 +29,9 @@ function App() {
         <Route path="/" element={<StudentFeedback />} />
 
         {/* Staff Authentication Portal */}
-        <Route path="/login" element={<Login setUser={setUser} />} />
+        <Route path="/login" element={<Login />} />
 
-        {/* Protected Dashboard Route for Chief Warden & Hostel Wardens */}
+        {/* Protected Dashboard Route */}
         <Route 
           path="/dashboard" 
           element={
