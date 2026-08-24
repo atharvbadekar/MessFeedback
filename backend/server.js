@@ -371,28 +371,27 @@ app.get('/api/admin/analytics-trends', authenticateToken, async (req, res) => {
 // Fast Transactional Bulk Student Upload
 // Bulk Student Upload Route
 app.post('/api/admin/bulk-students', authenticateToken, async (req, res) => {
-  const client = await pool.connect();
   try {
     const { studentsList, hostelId } = req.body;
 
     if (!studentsList || !Array.isArray(studentsList) || studentsList.length === 0) {
-      return res.status(400).json({ error: 'No student data received in request.' });
+      return res.status(400).json({ error: 'No student data received in CSV.' });
     }
 
-    await client.query('BEGIN');
-
-    let insertedCount = 0;
+    let successCount = 0;
+    let failedCount = 0;
 
     for (const s of studentsList) {
-      // Extract fields with fallbacks
       const rawId = s.collegeId || s.college_id || s['college id'] || s.id;
       const rawName = s.name || s['student name'] || s.student_name;
       const rawEmail = s.email || s['email id'] || s.email_id;
       const rawHostel = s.hostelId || s.hostel_id || s.hostel || hostelId || 'B1';
       const rawMobile = s.mobile || s.phone || s['mobile no'] || s.contact;
 
-      // Skip empty or invalid rows
-      if (!rawId || String(rawId).trim() === '') continue;
+      if (!rawId || String(rawId).trim() === '') {
+        failedCount++;
+        continue;
+      }
 
       const cleanId = String(rawId).trim().toUpperCase();
       const cleanName = rawName ? String(rawName).trim() : 'Student';
@@ -400,34 +399,32 @@ app.post('/api/admin/bulk-students', authenticateToken, async (req, res) => {
       const cleanHostel = String(rawHostel).trim().toUpperCase();
       const cleanMobile = rawMobile ? String(rawMobile).trim() : null;
 
-      await client.query(
-        `INSERT INTO students (college_id, name, email, hostel_id, mobile)
-         VALUES ($1, $2, $3, $4, $5)
-         ON CONFLICT (college_id) 
-         DO UPDATE SET 
-           name = EXCLUDED.name, 
-           email = EXCLUDED.email, 
-           hostel_id = EXCLUDED.hostel_id, 
-           mobile = EXCLUDED.mobile`,
-        [cleanId, cleanName, cleanEmail, cleanHostel, cleanMobile]
-      );
-
-      insertedCount++;
+      try {
+        await pool.query(
+          `INSERT INTO students (college_id, name, email, hostel_id, mobile)
+           VALUES ($1, $2, $3, $4, $5)
+           ON CONFLICT (college_id) 
+           DO UPDATE SET 
+             name = EXCLUDED.name, 
+             email = EXCLUDED.email, 
+             hostel_id = EXCLUDED.hostel_id, 
+             mobile = EXCLUDED.mobile`,
+          [cleanId, cleanName, cleanEmail, cleanHostel, cleanMobile]
+        );
+        successCount++;
+      } catch (rowErr) {
+        console.error(`Row insert failed for ID ${cleanId}:`, rowErr.message);
+        failedCount++;
+      }
     }
 
-    await client.query('COMMIT');
-    res.json({ 
+    return res.status(200).json({ 
       success: true, 
-      message: `Successfully processed ${insertedCount} students into the database.` 
+      message: `Successfully imported ${successCount} students. (${failedCount} skipped)` 
     });
   } catch (err) {
-    await client.query('ROLLBACK');
-    console.error('Detailed Bulk Upload Error:', err);
-    res.status(500).json({ 
-      error: `Database Upload Error: ${err.message}` 
-    });
-  } finally {
-    client.release();
+    console.error('Fatal Bulk Upload Error:', err);
+    return res.status(500).json({ error: `Server failed: ${err.message}` });
   }
 });
 
