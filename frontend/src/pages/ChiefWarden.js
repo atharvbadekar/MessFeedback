@@ -105,37 +105,51 @@ const ChiefWarden = ({ onLogout }) => {
         reader.onload = async (e) => {
             try {
                 const text = e.target.result;
-                const rows = text.split(/\r?\n/).filter(row => row.trim() !== '');
-                if (rows.length < 2) throw new Error("CSV file must contain a header row and data.");
+                const rows = text
+                    .split(/\r?\n/)
+                    .map(r => r.trim())
+                    .filter(r => r.length > 0);
 
-                const headers = rows[0].split(',').map(h => h.trim().replace(/"/g, '').toLowerCase());
-                
+                if (rows.length < 2) {
+                    throw new Error("CSV file must contain a header row and at least one student.");
+                }
+
+                // Clean headers
+                const headers = rows[0]
+                    .split(',')
+                    .map(h => h.trim().replace(/^["']|["']$/g, '').toLowerCase());
+
                 const studentsList = rows.slice(1).map(row => {
-                    const values = row.split(',').map(v => v.trim().replace(/"/g, ''));
+                    const values = row.split(',').map(v => v.trim().replace(/^["']|["']$/g, ''));
                     const studentObj = {};
                     headers.forEach((header, index) => {
-                        studentObj[header] = values[index];
+                        studentObj[header] = values[index] || '';
                     });
 
                     return {
-                        collegeId: studentObj.collegeid || studentObj['college id'] || studentObj.id || values[0],
-                        name: studentObj.name || studentObj['student name'] || values[1] || 'Student',
-                        email: studentObj.email || studentObj['email id'] || studentObj['student email'] || values[2] || '',
-                        hostelId: isChief ? (studentObj.hostelid || studentObj['hostel id'] || values[3] || hostelId) : assignedHostel,
-                        mobile: studentObj.mobile || studentObj.phone || values[4] || null
+                        collegeId: studentObj.collegeid || studentObj['college id'] || studentObj.college_id || studentObj.id || values[0],
+                        name: studentObj.name || studentObj['student name'] || studentObj.student_name || values[1] || 'Student',
+                        email: studentObj.email || studentObj['email id'] || studentObj.email_id || values[2] || '',
+                        hostelId: isChief 
+                            ? (studentObj.hostelid || studentObj['hostel id'] || studentObj.hostel || values[3] || hostelId)
+                            : assignedHostel,
+                        mobile: studentObj.mobile || studentObj.phone || studentObj['mobile no'] || values[4] || ''
                     };
-                }).filter(s => s.collegeId);
+                }).filter(s => s.collegeId && s.collegeId.length > 0);
 
-                await axios.post(`${API_URL}/api/admin/bulk-students`, {
-                    studentsList,
-                    hostelId: isChief ? hostelId : assignedHostel
-                }, getAuthHeaders());
+                const token = localStorage.getItem('token') || localStorage.getItem('adminToken');
+                const res = await axios.post(
+                    `${API_URL}/api/admin/bulk-students`,
+                    { studentsList, hostelId: isChief ? hostelId : assignedHostel },
+                    { headers: { Authorization: `Bearer ${token}` } }
+                );
 
-                alert(`Successfully imported ${studentsList.length} students into PostgreSQL!`);
+                alert(res.data.message || `Successfully imported ${studentsList.length} students!`);
                 fetchData(); 
             } catch (err) {
                 console.error("Upload Error:", err);
-                alert(`Upload Error: ${err.response?.data?.error || err.message}`);
+                const msg = err.response?.data?.error || err.message;
+                alert(`Upload failed: ${msg}`);
             } finally {
                 setIsUploading(false);
                 if (fileInputRef.current) fileInputRef.current.value = ''; 
