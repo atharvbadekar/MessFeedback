@@ -55,7 +55,7 @@ const ChiefWarden = ({ onLogout }) => {
 
     const API_URL = window.location.hostname === 'localhost' 
         ? 'http://localhost:5000' 
-        : 'https://messfeedbackcuraj.onrender.com';
+        : 'https://messfeedback-rbrj.onrender.com';
 
     const getAuthHeaders = () => {
         const token = localStorage.getItem('adminToken') || localStorage.getItem('token');

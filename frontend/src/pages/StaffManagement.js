@@ -13,7 +13,7 @@ const StaffManagement = () => {
 
     const API_URL = window.location.hostname === 'localhost' 
         ? 'http://localhost:5000' 
-        : 'https://messfeedbackcuraj.onrender.com';
+        : 'https://messfeedback-rbrj.onrender.com';
 
     const getAuthHeaders = () => {
         const token = localStorage.getItem('token') || localStorage.getItem('adminToken');

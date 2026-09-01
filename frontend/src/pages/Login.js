@@ -13,7 +13,7 @@ const Login = () => {
   // Dynamic API URL for Localhost and Render Production
   const API_URL = window.location.hostname === 'localhost' 
     ? 'http://localhost:5000' 
-    : 'https://messfeedbackcuraj.onrender.com';
+    : 'https://messfeedback-rbrj.onrender.com';
 
   const handleSubmit = async (e) => {
     e.preventDefault();

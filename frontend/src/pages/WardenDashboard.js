@@ -32,7 +32,7 @@ const WardenDashboard = ({ hostelId, onLogout }) => {
     const role = localStorage.getItem('role'); 
     const API_URL = window.location.hostname === 'localhost' 
         ? 'http://localhost:5000' 
-        : 'https://messfeedbackcuraj.onrender.com';
+        : 'https://messfeedback-rbrj.onrender.com';
 
     const questionLabels = [
         "Menu", "Cleanliness", "Staff", "Roti", "Veg", "Rice", "Curd", "Tea", "Breakfast", "Daily"

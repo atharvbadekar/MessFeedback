@@ -23,7 +23,7 @@ const StudentFeedback = () => {
 
   const API_URL = window.location.hostname === 'localhost' 
     ? 'http://localhost:5000' 
-    : 'https://messfeedbackcuraj.onrender.com';
+    : 'https://messfeedback-rbrj.onrender.com';
 
   const questions = [
     "क्या मेगा मेस में मेन्यु फॉलो किया जा रहा है ? Is the menu being followed at Mega Mess?",
