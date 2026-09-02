@@ -204,7 +204,7 @@ app.post('/api/student/verify-otp', (req, res) => {
 // STEP 3: Submit 10-Question Mess Assessment
 app.post('/api/feedback/submit', async (req, res) => {
   try {
-    const { collegeId, answers, comments } = req.body;
+    const { collegeId, answers, comments, hostelId: bodyHostelId } = req.body;
 
     if (!collegeId || !answers || !Array.isArray(answers) || answers.length !== 10) {
       return res.status(400).json({ error: 'All 10 quality rating questions must be filled.' });
@@ -212,7 +212,7 @@ app.post('/api/feedback/submit', async (req, res) => {
 
     const cleanId = String(collegeId).trim().toUpperCase();
 
-    // Verify student exists and grab student details
+    // Verify student exists
     const studentResult = await pool.query(
       'SELECT college_id, hostel_id FROM students WHERE UPPER(college_id) = $1',
       [cleanId]
@@ -223,13 +223,28 @@ app.post('/api/feedback/submit', async (req, res) => {
     }
 
     const verifiedStudent = studentResult.rows[0];
-    const hostelId = verifiedStudent.hostel_id;
+
+    // Determine non-null hostel ID (DB value -> Body value -> Fallback 'B1')
+    const finalHostelId = (
+      verifiedStudent.hostel_id || 
+      bodyHostelId || 
+      'B1'
+    ).toString().trim().toUpperCase();
+
+    // If student table had NULL for hostel_id, backfill it so future queries work
+    if (!verifiedStudent.hostel_id) {
+      await pool.query(
+        'UPDATE students SET hostel_id = $1 WHERE college_id = $2',
+        [finalHostelId, verifiedStudent.college_id]
+      );
+    }
+
     const currentMonthYear = new Date().toISOString().slice(0, 7);
 
-    // Convert all answers to standard integers to prevent PostgreSQL array type conflicts
+    // Convert all answers to integers
     const parsedAnswers = answers.map(val => parseInt(val, 10) || 0);
 
-    // Save or update submission using verified student college_id
+    // Save or update submission
     await pool.query(
       `INSERT INTO feedback_submissions (college_id, hostel_id, answers, comments, month_year, submitted_at)
        VALUES ($1, $2, $3, $4, $5, NOW())
@@ -237,8 +252,9 @@ app.post('/api/feedback/submit', async (req, res) => {
        DO UPDATE SET 
          answers = EXCLUDED.answers, 
          comments = EXCLUDED.comments, 
+         hostel_id = EXCLUDED.hostel_id,
          submitted_at = NOW()`,
-      [verifiedStudent.college_id, hostelId, parsedAnswers, comments || '', currentMonthYear]
+      [verifiedStudent.college_id, finalHostelId, parsedAnswers, comments || '', currentMonthYear]
     );
 
     res.json({ success: true, message: 'Mess feedback assessment submitted successfully.' });
