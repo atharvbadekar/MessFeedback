@@ -26,7 +26,7 @@ const otpStore = {};
 // 3. Database Initialization & Migration
 const initDatabase = async () => {
   try {
-    // Schema definitions
+    // Schema definitions with inline UNIQUE constraint to guarantee ON CONFLICT works
     await pool.query(`
       CREATE TABLE IF NOT EXISTS wardens (
         id SERIAL PRIMARY KEY,
@@ -54,10 +54,26 @@ const initDatabase = async () => {
         answers INTEGER[] NOT NULL,
         comments TEXT,
         month_year VARCHAR(7) NOT NULL, -- Format: 'YYYY-MM' (e.g. '2026-08')
-        submitted_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
+        submitted_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
+        CONSTRAINT uq_student_month UNIQUE (college_id, month_year)
       );
 
       CREATE UNIQUE INDEX IF NOT EXISTS idx_student_month ON feedback_submissions(college_id, month_year);
+    `);
+
+    // Ensure constraint exists on previously created tables
+    await pool.query(`
+      DO $$
+      BEGIN
+        IF NOT EXISTS (
+          SELECT 1 FROM pg_constraint WHERE conname = 'uq_student_month'
+        ) THEN
+          ALTER TABLE feedback_submissions 
+          ADD CONSTRAINT uq_student_month UNIQUE (college_id, month_year);
+        END IF;
+      EXCEPTION
+        WHEN others THEN NULL;
+      END $$;
     `);
 
     // Ensure default Chief Administrator account exists
@@ -108,9 +124,11 @@ app.post('/api/student/verify', async (req, res) => {
       return res.status(400).json({ error: 'Please enter your College Enrollment ID.' });
     }
 
+    const cleanId = String(collegeId).trim().toUpperCase();
+
     const studentResult = await pool.query(
-      'SELECT college_id, name, email, hostel_id, mobile FROM students WHERE college_id = $1',
-      [collegeId.trim().toUpperCase()]
+      'SELECT college_id, name, email, hostel_id, mobile FROM students WHERE UPPER(college_id) = $1',
+      [cleanId]
     );
 
     if (studentResult.rows.length === 0) {
@@ -122,7 +140,7 @@ app.post('/api/student/verify', async (req, res) => {
 
     // Check if feedback was already logged this calendar month
     const existingFeedback = await pool.query(
-      'SELECT submitted_at FROM feedback_submissions WHERE college_id = $1 AND month_year = $2',
+      'SELECT submitted_at FROM feedback_submissions WHERE UPPER(college_id) = $1 AND month_year = $2',
       [student.college_id, currentMonthYear]
     );
 
@@ -164,13 +182,14 @@ app.post('/api/student/verify-otp', (req, res) => {
     return res.status(400).json({ error: 'College ID and OTP are required.' });
   }
 
-  const record = otpStore[collegeId.trim().toUpperCase()];
+  const cleanId = String(collegeId).trim().toUpperCase();
+  const record = otpStore[cleanId];
 
   if (!record) {
     return res.status(400).json({ error: 'No OTP requested or OTP has expired. Please request a new code.' });
   }
   if (Date.now() > record.expiresAt) {
-    delete otpStore[collegeId.trim().toUpperCase()];
+    delete otpStore[cleanId];
     return res.status(400).json({ error: 'OTP has expired. Please request a new one.' });
   }
   if (record.otp !== String(otp).trim()) {
@@ -178,7 +197,7 @@ app.post('/api/student/verify-otp', (req, res) => {
   }
 
   // Clear OTP once verified
-  delete otpStore[collegeId.trim().toUpperCase()];
+  delete otpStore[cleanId];
   res.json({ success: true, message: 'OTP verified successfully.' });
 });
 
@@ -191,10 +210,11 @@ app.post('/api/feedback/submit', async (req, res) => {
       return res.status(400).json({ error: 'All 10 quality rating questions must be filled.' });
     }
 
-    const cleanId = collegeId.trim().toUpperCase();
+    const cleanId = String(collegeId).trim().toUpperCase();
 
+    // Verify student exists and grab student details
     const studentResult = await pool.query(
-      'SELECT hostel_id FROM students WHERE college_id = $1',
+      'SELECT college_id, hostel_id FROM students WHERE UPPER(college_id) = $1',
       [cleanId]
     );
 
@@ -202,10 +222,14 @@ app.post('/api/feedback/submit', async (req, res) => {
       return res.status(404).json({ error: 'Student profile not found.' });
     }
 
-    const hostelId = studentResult.rows[0].hostel_id;
+    const verifiedStudent = studentResult.rows[0];
+    const hostelId = verifiedStudent.hostel_id;
     const currentMonthYear = new Date().toISOString().slice(0, 7);
 
-    // Save submission into historical table with timestamp
+    // Convert all answers to standard integers to prevent PostgreSQL array type conflicts
+    const parsedAnswers = answers.map(val => parseInt(val, 10) || 0);
+
+    // Save or update submission using verified student college_id
     await pool.query(
       `INSERT INTO feedback_submissions (college_id, hostel_id, answers, comments, month_year, submitted_at)
        VALUES ($1, $2, $3, $4, $5, NOW())
@@ -214,13 +238,16 @@ app.post('/api/feedback/submit', async (req, res) => {
          answers = EXCLUDED.answers, 
          comments = EXCLUDED.comments, 
          submitted_at = NOW()`,
-      [cleanId, hostelId, answers, comments || '', currentMonthYear]
+      [verifiedStudent.college_id, hostelId, parsedAnswers, comments || '', currentMonthYear]
     );
 
     res.json({ success: true, message: 'Mess feedback assessment submitted successfully.' });
   } catch (err) {
-    console.error('Feedback submission error:', err);
-    res.status(500).json({ error: 'Database error saving feedback response.' });
+    console.error('Feedback submission detailed error:', err);
+    res.status(500).json({ 
+      error: 'Database error saving feedback response.',
+      detail: err.message 
+    });
   }
 });
 
@@ -273,7 +300,6 @@ app.post('/api/admin/login', async (req, res) => {
 // ADMIN DATA, ANALYTICS & BULK ACTIONS
 // =========================================================================
 
-// Retrieve Student Records with their Latest Feedback
 // Retrieve Student Records with their Latest Feedback
 app.get('/api/admin/students', authenticateToken, async (req, res) => {
   try {
@@ -369,7 +395,6 @@ app.get('/api/admin/analytics-trends', authenticateToken, async (req, res) => {
 });
 
 // Fast Transactional Bulk Student Upload
-// Bulk Student Upload Route
 app.post('/api/admin/bulk-students', authenticateToken, async (req, res) => {
   try {
     const { studentsList, hostelId } = req.body;
@@ -492,8 +517,6 @@ app.delete('/api/admin/wardens/:id', authenticateToken, async (req, res) => {
     res.status(500).json({ error: 'Failed to delete warden account.' });
   }
 });
-
-
 
 // =========================================================================
 // START SERVER
